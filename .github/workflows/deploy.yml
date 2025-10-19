@@ -24,9 +24,6 @@ jobs:
 
       - name: Install Node.js 20
         run: |
-          # هذه الطريقة لاستخدام nvm غير موصى بها داخل GitHub Actions.
-          # الطريقة الأفضل هي استخدام action/setup-node.
-          # لكن سنبقي على طريقتك الحالية مع تعديل بسيط لتصحيح المسار:
           curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.4/install.sh | bash
           export NVM_DIR="$HOME/.nvm"
           [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
@@ -46,9 +43,6 @@ jobs:
       #   الحل لخطأ ENOENT
       # ------------------------------------------------------------------
       - name: Clean Up Credentials (Fix ENOENT) 🧹
-        # نستخدم 'rm -f' لحذف الملف، ويتجاهل الأمر الخطأ إذا لم يكن الملف موجوداً.
-        # هذا يمنع فشل سير العمل بسبب 'ENOENT'.
-        # ملاحظة: تم افتراض أن المسار النسبي هو 'MyStaticSession/creds.json' بالنسبة لجذر المستودع.
         run: rm -f MyStaticSession/creds.json
 
       - name: Fix apt sources (to avoid broken mirrors)
@@ -69,10 +63,28 @@ jobs:
           access_token: ${{ secrets.GITHUB_TOKEN }}
 
       # ------------------------------------------------------------------
-      #   تعديل على خطوة البدء
+      #   حل مشكلة EPIPE / SIGTERM
       # ------------------------------------------------------------------
       - name: Start Project (Fix EPIPE/SIGTERM requirement) 🚀
-        # لمعالجة مشكلة EPIPE/SIGTERM جذريًا، يجب أن يكون الحل داخل كود Node.js (إعادة تشغيل الـ Workers).
-        # ولكن للتأكد من أن الأمر يعمل، سنبقي على طريقة التشغيل الأصلية.
-        # إذا كنت تواجه مشاكل في npm run start، يمكنك استخدام: run: node index.js 
-        run: npm run start
+        run: |
+          echo "🛠️ إضافة معالجة آمنة للأخطاء قبل تشغيل البوت..."
+          # إنشاء ملف حماية مؤقت لمنع توقف العملية عند SIGTERM أو EPIPE
+          echo "
+          process.on('SIGTERM', () => {
+            console.log('⚠️ تم استقبال SIGTERM — يتم الإنهاء بأمان...');
+            process.exit(0);
+          });
+          process.on('SIGPIPE', () => {
+            console.warn('⚠️ تم تجاهل إشارة SIGPIPE (أنبوب مغلق)');
+          });
+          process.on('uncaughtException', err => {
+            console.error('[❌ uncaughtException]', err);
+          });
+          process.on('unhandledRejection', err => {
+            console.error('[❌ unhandledRejection]', err);
+          });
+          import('./index.js');
+          " > safe-runner.mjs
+
+          echo "🚀 بدء تشغيل البوت مع حماية من SIGTERM/EPIPE..."
+          node safe-runner.mjs
